@@ -155,6 +155,19 @@ func loadAccounts(filename string) ([]Account, error) {
 	return accounts, nil
 }
 
+func containsAny(s string, substrs []string) bool {
+	for _, substr := range substrs {
+		if len(s) >= len(substr) {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func fundAccountsParallel(config Config, accounts []Account) error {
 	numFunders := len(config.FunderKeys)
 	numEndpoints := len(config.Endpoints)
@@ -237,17 +250,22 @@ func fundWithFunder(config Config, funderKeyHex string, endpoint string, account
 
 	funded := 0
 	skipped := 0
+	failed := 0
 
 	for i, account := range accounts {
 		addr := common.HexToAddress(account.Address)
 
-		// Check balance
+		// Check balance - skip if account has sufficient balance (>= 0.5 ETH)
 		balance, err := client.BalanceAt(ctx, addr, nil)
 		if err != nil {
+			log.Printf("Funder %d: Failed to get balance for %s: %v", funderIdx, addr.Hex(), err)
+			failed++
 			continue
 		}
 
-		if balance.Cmp(big.NewInt(0)) > 0 {
+		minBalance := new(big.Int)
+		minBalance.SetString("500000000000000000", 10) // 0.5 ETH
+		if balance.Cmp(minBalance) >= 0 {
 			skipped++
 			continue
 		}
@@ -256,11 +274,15 @@ func fundWithFunder(config Config, funderKeyHex string, endpoint string, account
 		tx := types.NewTransaction(nonce, addr, fundAmount, config.GasLimit, gasPrice, nil)
 		signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), funderKey)
 		if err != nil {
+			log.Printf("Funder %d: Failed to sign tx for %s: %v", funderIdx, addr.Hex(), err)
+			failed++
 			continue
 		}
 
 		err = client.SendTransaction(ctx, signedTx)
 		if err != nil {
+			log.Printf("Funder %d: Failed to send tx for %s (nonce %d): %v", funderIdx, addr.Hex(), nonce, err)
+			failed++
 			continue
 		}
 
@@ -272,7 +294,7 @@ func fundWithFunder(config Config, funderKeyHex string, endpoint string, account
 		}
 	}
 
-	log.Printf("Funder %d: Complete - funded %d, skipped %d", funderIdx, funded, skipped)
+	log.Printf("Funder %d: Complete - funded %d, skipped %d, failed %d", funderIdx, funded, skipped, failed)
 	return funded, skipped
 }
 
@@ -358,6 +380,7 @@ func runTPSTest(config Config, accounts []Account) {
 	totalTxs := 0
 	successTxs := 0
 	failedTxs := 0
+	errorCounts := make(map[string]int)
 
 	startTime := time.Now()
 	endTime := startTime.Add(time.Duration(config.Duration) * time.Second)
@@ -392,9 +415,15 @@ func runTPSTest(config Config, accounts []Account) {
 				idx := accountIndex % len(accounts)
 				accountIndex++
 
+				// Reserve nonce atomically before launching goroutine
+				mu.Lock()
+				nonce := nonces[idx]
+				nonces[idx]++ // Increment immediately to reserve this nonce
+				mu.Unlock()
+
 				sem <- struct{}{} // Acquire semaphore
 				wg.Add(1)
-				go func(index int, clientIdx int) {
+				go func(index int, txNonce uint64, clientIdx int) {
 					defer wg.Done()
 					defer func() { <-sem }() // Release semaphore
 
@@ -402,33 +431,58 @@ func runTPSTest(config Config, accounts []Account) {
 					recipientIdx := rand.Intn(len(accounts))
 					recipient := common.HexToAddress(accounts[recipientIdx].Address)
 
-					mu.Lock()
-					nonce := nonces[index]
-					nonces[index]++
-					mu.Unlock()
-
 					amount := big.NewInt(1)
-					tx := types.NewTransaction(nonce, recipient, amount, config.GasLimit, gasPrice, nil)
+					tx := types.NewTransaction(txNonce, recipient, amount, config.GasLimit, gasPrice, nil)
 					signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), keys[index])
 					if err != nil {
 						mu.Lock()
 						failedTxs++
+						totalTxs++
 						mu.Unlock()
 						return
 					}
 
-					// Use round-robin endpoint selection
-					client := clients[clientIdx%len(clients)]
-					err = client.SendTransaction(ctx, signedTx)
+					// Retry logic with exponential backoff
+					maxRetries := 3
+					var sendErr error
+					for attempt := 0; attempt < maxRetries; attempt++ {
+						// Use round-robin endpoint selection
+						client := clients[clientIdx%len(clients)]
+						sendErr = client.SendTransaction(ctx, signedTx)
+
+						if sendErr == nil {
+							// Success
+							break
+						}
+
+						// Retry on network errors, but not on nonce/validation errors
+						errStr := sendErr.Error()
+						if attempt < maxRetries-1 {
+							// Check if it's a retryable error (network/timeout)
+							if containsAny(errStr, []string{"connection", "timeout", "EOF", "reset"}) {
+								time.Sleep(time.Duration(50*(attempt+1)) * time.Millisecond)
+								continue
+							}
+						}
+						// Non-retryable error or max retries reached
+						break
+					}
+
 					mu.Lock()
 					totalTxs++
-					if err != nil {
+					if sendErr != nil {
 						failedTxs++
+						// Track error types
+						errMsg := sendErr.Error()
+						if len(errMsg) > 100 {
+							errMsg = errMsg[:100]
+						}
+						errorCounts[errMsg]++
 					} else {
 						successTxs++
 					}
 					mu.Unlock()
-				}(idx, i)
+				}(idx, nonce, i)
 			}
 
 			// Log progress every 10 seconds
@@ -455,4 +509,11 @@ func runTPSTest(config Config, accounts []Account) {
 	log.Printf("Actual TPS: %.2f", actualTPS)
 	log.Printf("Target TPS: %d", config.TargetTPS)
 	log.Printf("Achievement: %.2f%%", (actualTPS/float64(config.TargetTPS))*100)
+
+	if len(errorCounts) > 0 {
+		log.Println("\n=== Error Summary ===")
+		for errMsg, count := range errorCounts {
+			log.Printf("%d occurrences: %s", count, errMsg)
+		}
+	}
 }
