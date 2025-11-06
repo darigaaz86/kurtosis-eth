@@ -1,0 +1,366 @@
+---
+- name: Deploy Ethereum Chain Node
+  hosts: chain_node
+  become: yes
+  vars:
+    testnet_dir: "/home/{{ ansible_user }}/ethereum-testnet"
+    enclave_name: "my-testnet"
+  tasks:
+    - name: Wait for cloud-init to complete
+      wait_for:
+        path: /var/lib/cloud/instance/user-data-finished
+        timeout: 600
+
+    - name: Ensure Docker is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Create testnet directory
+      file:
+        path: "{{ testnet_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Copy network parameters
+      copy:
+        src: ../network_params.yaml
+        dest: "{{ testnet_dir }}/network_params.yaml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+
+    - name: Reset SSH connection to apply docker group
+      meta: reset_connection
+
+    - name: Check if Kurtosis engine is running
+      shell: kurtosis engine status
+      register: kurtosis_status
+      ignore_errors: yes
+      become_user: "{{ ansible_user }}"
+
+    - name: Start Kurtosis engine
+      shell: kurtosis engine start
+      become_user: "{{ ansible_user }}"
+      when: kurtosis_status.rc != 0
+
+    - name: Pull required Docker images
+      docker_image:
+        name: "{{ item }}"
+        source: pull
+      loop:
+        - ghcr.io/paradigmxyz/reth:latest
+        - sigp/lighthouse:latest
+        - ethpandaops/ethereum-genesis-generator:5.1.0
+        - protolambda/eth2-val-tools:latest
+      async: 600
+      poll: 10
+
+    - name: Check if enclave exists
+      shell: kurtosis enclave inspect {{ enclave_name }}
+      register: enclave_check
+      ignore_errors: yes
+      become_user: "{{ ansible_user }}"
+
+    - name: Remove existing enclave if present
+      shell: kurtosis enclave rm {{ enclave_name }} --force
+      become_user: "{{ ansible_user }}"
+      when: enclave_check.rc == 0
+
+    - name: Deploy Ethereum testnet with Kurtosis
+      shell: |
+        cd {{ testnet_dir }}
+        kurtosis run --enclave {{ enclave_name }} \
+          github.com/ethpandaops/ethereum-package \
+          --args-file network_params.yaml
+      become_user: "{{ ansible_user }}"
+      register: kurtosis_deploy
+      async: 1800
+      poll: 10
+
+    - name: Wait for testnet to be ready
+      shell: |
+        for i in {1..30}; do
+          if kurtosis enclave inspect {{ enclave_name }} | grep -q "RUNNING"; then
+            exit 0
+          fi
+          sleep 10
+        done
+        exit 1
+      become_user: "{{ ansible_user }}"
+
+    - name: Get enclave info
+      shell: kurtosis enclave inspect {{ enclave_name }}
+      become_user: "{{ ansible_user }}"
+      register: enclave_info
+
+    - name: Get RPC ports from running containers
+      shell: docker ps | grep reth | grep -oP '0\.0\.0\.0:\K[0-9]+(?=->8545)'
+      register: rpc_ports
+
+    - name: Install Python dependencies for txpool-exporter
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-requests
+        state: present
+        update_cache: yes
+
+    - name: Copy txpool-exporter base script
+      copy:
+        src: ../txpool-exporter.py
+        dest: /home/{{ ansible_user }}/txpool-exporter.py
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Update RPC URLs in txpool-exporter
+      replace:
+        path: /home/{{ ansible_user }}/txpool-exporter.py
+        regexp: 'RPC_URLS = \[.*?\]'
+        replace: 'RPC_URLS = [{% for port in rpc_ports.stdout_lines %}"http://127.0.0.1:{{ port }}"{{ "," if not loop.last else "" }}{% endfor %}]'
+
+    - name: Create systemd service for txpool-exporter
+      copy:
+        content: |
+          [Unit]
+          Description=Txpool Prometheus Exporter
+          After=network.target docker.service
+          Requires=docker.service
+
+          [Service]
+          Type=simple
+          User={{ ansible_user }}
+          WorkingDirectory=/home/{{ ansible_user }}
+          ExecStart=/usr/bin/python3 /home/{{ ansible_user }}/txpool-exporter.py
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/txpool-exporter.service
+        mode: '0644'
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start txpool-exporter service
+      systemd:
+        name: txpool-exporter
+        state: restarted
+        enabled: yes
+
+    - name: Wait for txpool-exporter to start
+      wait_for:
+        port: 9200
+        timeout: 30
+
+    - name: Verify txpool-exporter is working
+      uri:
+        url: "http://localhost:9200/metrics"
+        return_content: yes
+      register: exporter_metrics
+      retries: 3
+      delay: 2
+
+    - name: Display txpool metrics sample
+      debug:
+        msg: "{{ exporter_metrics.content | regex_findall('txpool_.*') | first }}"
+      when: exporter_metrics.content is defined
+
+    - name: Test RPC endpoint directly
+      shell: |
+        curl -s -X POST http://127.0.0.1:{{ rpc_ports.stdout_lines[0] }} \
+          -H "Content-Type: application/json" \
+          -d '{"jsonrpc":"2.0","method":"txpool_status","params":[],"id":1}'
+      register: rpc_test
+      when: rpc_ports.stdout_lines | length > 0
+
+    - name: Display RPC test result
+      debug:
+        msg: "RPC txpool_status response: {{ rpc_test.stdout | from_json }}"
+      when: rpc_test.stdout is defined
+
+    - name: Get Prometheus container ID
+      shell: docker ps | grep prometheus | awk '{print $1}'
+      register: prometheus_container
+
+    - name: Get current Prometheus config
+      shell: docker exec {{ prometheus_container.stdout }} cat /config/prometheus-config.yml
+      register: prometheus_config
+
+    - name: Check if txpool-exporter already in config
+      shell: docker exec {{ prometheus_container.stdout }} grep -q "txpool-exporter" /config/prometheus-config.yml
+      register: txpool_in_config
+      ignore_errors: yes
+
+    - name: Copy Prometheus config from container
+      shell: docker cp {{ prometheus_container.stdout }}:/config/prometheus-config.yml /tmp/prom-config.yml
+      when: txpool_in_config.rc != 0
+
+    - name: Append txpool-exporter to Prometheus config
+      blockinfile:
+        path: /tmp/prom-config.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - txpool-exporter"
+        block: |2
+            - job_name: "txpool-exporter"
+              static_configs:
+                - targets: ["172.17.0.1:9200"]
+                  labels:
+                    instance: "txpool-exporter"
+      when: txpool_in_config.rc != 0
+
+    - name: Copy modified config back to container
+      shell: docker cp /tmp/prom-config.yml {{ prometheus_container.stdout }}:/config/prometheus-config.yml
+      when: txpool_in_config.rc != 0
+
+    - name: Restart Prometheus to apply config
+      shell: docker restart {{ prometheus_container.stdout }}
+      when: txpool_in_config.rc != 0
+
+    - name: Wait for Prometheus to restart
+      wait_for:
+        timeout: 15
+
+    - name: Get Grafana container ID
+      shell: docker ps | grep grafana | awk '{print $1}'
+      register: grafana_container
+
+    - name: Get Grafana port
+      shell: docker ps | grep grafana | grep -oP '0\.0\.0\.0:\K[0-9]+(?=->3000)'
+      register: grafana_port
+
+    - name: Wait for Grafana to be ready
+      uri:
+        url: "http://localhost:{{ grafana_port.stdout }}/api/health"
+        status_code: 200
+      register: result
+      until: result.status == 200
+      retries: 30
+      delay: 2
+
+    - name: Check if dashboard file exists locally
+      stat:
+        path: "{{ playbook_dir }}/../performance-dashboard-v2.json"
+      delegate_to: localhost
+      register: dashboard_file
+
+    - name: Copy dashboard to remote
+      copy:
+        src: "{{ playbook_dir }}/../performance-dashboard-v2.json"
+        dest: /tmp/performance-dashboard-v2.json
+      when: dashboard_file.stat.exists
+
+    - name: Import Grafana dashboard
+      shell: |
+        curl -X POST -H "Content-Type: application/json" \
+          -d @/tmp/performance-dashboard-v2.json \
+          http://admin:admin@localhost:{{ grafana_port.stdout }}/api/dashboards/db
+      when: dashboard_file.stat.exists
+      register: dashboard_import
+      failed_when: false
+
+    - name: Display dashboard import result
+      debug:
+        msg: "Dashboard import: {{ 'Success' if dashboard_import.rc == 0 else 'Failed - will need manual import' }}"
+      when: dashboard_file.stat.exists
+
+    - name: Display chain deployment info
+      debug:
+        msg: |
+          ========================================
+          Ethereum Chain Node Deployed!
+          ========================================
+          Enclave: {{ enclave_name }}
+          Txpool Exporter: Running on port 9200
+          Prometheus: Configured to scrape txpool metrics
+          Grafana: http://{{ ansible_host }}:{{ grafana_port.stdout }}
+          Grafana Dashboard: Imported successfully
+
+- name: Setup TPS Test Node
+  hosts: tps_node
+  become: yes
+  vars:
+    tps_dir: "/home/{{ ansible_user }}/tps-test"
+  tasks:
+    - name: Wait for cloud-init to complete
+      wait_for:
+        path: /var/lib/cloud/instance/user-data-finished
+        timeout: 600
+
+    - name: Install dependencies
+      apt:
+        name:
+          - python3
+          - python3-pip
+        state: present
+        update_cache: yes
+
+    - name: Create TPS test directory
+      file:
+        path: "{{ tps_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Copy TPS test scripts
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ tps_dir }}/{{ item.dest }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { src: "tps-test-v2.go", dest: "tps-test-v2.go", mode: '0755' }
+        - { src: "go.mod", dest: "go.mod", mode: '0644' }
+        - { src: "../accounts.json", dest: "accounts.json", mode: '0644' }
+
+    - name: Install Go
+      shell: |
+        wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+        rm go1.21.5.linux-amd64.tar.gz
+      args:
+        creates: /usr/local/go/bin/go
+
+    - name: Build Go TPS test v2
+      shell: |
+        export PATH=$PATH:/usr/local/go/bin
+        cd {{ tps_dir }}
+        go mod tidy
+        go build -o tps-test-v2 tps-test-v2.go
+      become_user: "{{ ansible_user }}"
+      environment:
+        GOPATH: "/home/{{ ansible_user }}/go"
+
+    - name: Display TPS test info
+      debug:
+        msg: |
+          ========================================
+          TPS Test Node Setup Complete!
+          ========================================
+          TPS Scripts: {{ tps_dir }}
+          Accounts File: {{ tps_dir }}/accounts.json (10,000 addresses)
+          
+          Run TPS Test v2:
+          ssh {{ ansible_user }}@{{ inventory_hostname }}
+          cd {{ tps_dir }}
+          RPC_URLS=http://{{ chain_ip }}:32861,... TPS_TARGET=1000 DURATION_SECONDS=300 ./tps-test-v2
+          
+          Go TPS Test (Recommended):
+          ssh {{ ansible_user }}@{{ inventory_hostname }}
+          cd {{ tps_dir }}
+          RPC_URL=http://{{ chain_ip }}:32769 TPS_TARGET=1000 ./tps-test
