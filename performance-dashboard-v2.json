@@ -1,0 +1,714 @@
+{
+  "dashboard": {
+    "title": "Ethereum Performance Analysis - TPS Test",
+    "tags": ["ethereum", "performance", "tps"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 0,
+    "refresh": "5s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "RPC Call Latency (p50, p95, p99)",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "reth_rpc_server_calls_time_seconds{quantile=\"0.5\",method=\"eth_sendRawTransaction\"}",
+            "refId": "A",
+            "legendFormat": "p50 - {{job}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          },
+          {
+            "expr": "reth_rpc_server_calls_time_seconds{quantile=\"0.95\",method=\"eth_sendRawTransaction\"}",
+            "refId": "B",
+            "legendFormat": "p95 - {{job}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          },
+          {
+            "expr": "reth_rpc_server_calls_time_seconds{quantile=\"0.99\",method=\"eth_sendRawTransaction\"}",
+            "refId": "C",
+            "legendFormat": "p99 - {{job}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {
+              "axisLabel": "Latency (seconds)",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "RPC Calls Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(reth_rpc_server_calls_started_total[1m])",
+            "refId": "A",
+            "legendFormat": "{{job}} - {{method}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "axisLabel": "Requests/sec",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Network I/O - Received",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(network_node_bytes_total_received[1m]) / 1024 / 1024",
+            "refId": "A",
+            "legendFormat": "{{job}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "MBs",
+            "custom": {
+              "axisLabel": "MB/s",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Network I/O - Transmitted",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(network_node_bytes_total_transmit[1m]) / 1024 / 1024",
+            "refId": "A",
+            "legendFormat": "{{job}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "MBs",
+            "custom": {
+              "axisLabel": "MB/s",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "CPU Cores Used (Reth)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(reth_process_cpu_seconds_total[2m])",
+            "refId": "A",
+            "legendFormat": "{{job}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "axisLabel": "CPU Cores",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            },
+            "min": 0
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Memory Usage (Reth)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "reth_process_resident_memory_bytes / 1024 / 1024 / 1024",
+            "refId": "A",
+            "legendFormat": "{{job}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decgbytes",
+            "custom": {
+              "axisLabel": "Memory (GB)",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Block Processing Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(reth_database_transaction_commit_whole_duration_seconds_sum[1m]) / rate(reth_database_transaction_commit_whole_duration_seconds_count[1m])",
+            "refId": "A",
+            "legendFormat": "{{job}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {
+              "axisLabel": "Time (seconds)",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "RPC Success vs Failed",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(reth_rpc_server_calls_successful_total[1m])",
+            "refId": "A",
+            "legendFormat": "Success - {{job}}"
+          },
+          {
+            "expr": "rate(reth_rpc_server_calls_failed_total[1m])",
+            "refId": "B",
+            "legendFormat": "Failed - {{job}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "axisLabel": "Requests/sec",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Current Block Number",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "max(beacon_head_slot)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 32},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "RPC Connections",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(reth_rpc_server_connections_connections_opened_total[1m]))",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 32},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "cps",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "blue"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Total RPC Calls/sec",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(reth_rpc_server_calls_started_total[1m]))",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 32},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "yellow"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Peer Count",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg(beacon_peers_connected)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 32},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "purple"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "Txpool - Pending Transactions",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "txpool_pending_transactions",
+            "refId": "A",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "axisLabel": "Pending Txs",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 14,
+        "title": "Txpool - Queued Transactions",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "txpool_queued_transactions",
+            "refId": "A",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "axisLabel": "Queued Txs",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "Total Txpool Size",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(txpool_total_transactions)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 12, "x": 0, "y": 44},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 5000, "color": "yellow"},
+                {"value": 10000, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 16,
+        "title": "Avg Pending per Node",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg(txpool_pending_transactions)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 12, "x": 12, "y": 44},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "blue"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 17,
+        "title": "Transactions Per Second (TPS)",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "rate(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"}[1m])",
+            "refId": "A",
+            "legendFormat": "{{job}} - Submitted TPS",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          },
+          {
+            "expr": "rate(txpool_pending_transactions[1m]) * -1",
+            "refId": "B",
+            "legendFormat": "{{node}} - Processed TPS (approx)",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 48},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "tps",
+            "custom": {
+              "axisLabel": "Transactions/sec",
+              "drawStyle": "line",
+              "fillOpacity": 20,
+              "showPoints": "never",
+              "lineWidth": 2
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": ["mean", "max", "last"]
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 18,
+        "title": "Current TPS",
+        "type": "stat",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"}[1m]))",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 58},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "tps",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 100, "color": "yellow"},
+                {"value": 500, "color": "orange"},
+                {"value": 1000, "color": "red"}
+              ]
+            },
+            "decimals": 2
+          }
+        },
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        }
+      },
+      {
+        "id": 19,
+        "title": "Average TPS (1m)",
+        "type": "stat",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "avg_over_time(sum(rate(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"}[1m]))[1m:])",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 6, "y": 58},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "tps",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "blue"}
+              ]
+            },
+            "decimals": 2
+          }
+        },
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        }
+      },
+      {
+        "id": 20,
+        "title": "Peak TPS",
+        "type": "stat",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "max_over_time(sum(rate(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"}[1m]))[5m:])",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 58},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "tps",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "purple"}
+              ]
+            },
+            "decimals": 2
+          }
+        },
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        }
+      },
+      {
+        "id": 21,
+        "title": "Total Transactions Processed",
+        "type": "stat",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "sum(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"})",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 58},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"}
+              ]
+            },
+            "decimals": 0
+          }
+        },
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        }
+      },
+      {
+        "id": 22,
+        "title": "TPS by Node",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "rate(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"}[1m])",
+            "refId": "A",
+            "legendFormat": "{{job}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 64},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "tps",
+            "custom": {
+              "axisLabel": "TPS per Node",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never",
+              "lineWidth": 2
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": ["mean", "max", "last"]
+          }
+        }
+      },
+      {
+        "id": 23,
+        "title": "Transaction Success Rate",
+        "type": "gauge",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"}[1m])) / (sum(rate(reth_rpc_server_calls_successful_total{method=\"eth_sendRawTransaction\"}[1m])) + sum(rate(reth_rpc_server_calls_failed_total{method=\"eth_sendRawTransaction\"}[1m]))) * 100",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 64},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 80, "color": "yellow"},
+                {"value": 95, "color": "green"}
+              ]
+            },
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          }
+        },
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        }
+      }
+    ]
+  }
+}
