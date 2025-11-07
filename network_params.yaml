@@ -5,7 +5,7 @@ participants:
     el_log_level: ""
     el_extra_env_vars: {}
     el_extra_labels: {}
-    el_extra_params: ["--txpool.pending-max-count", "50000", "--txpool.queued-max-count", "50000"]
+    el_extra_params: ["--txpool.pending-max-count", "50000", "--txpool.queued-max-count", "50000", "--block.gaslimit", "600000000"]
     el_extra_mounts: {}
     el_tolerations: []
     el_volume_size: 0

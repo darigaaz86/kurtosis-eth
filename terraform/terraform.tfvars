@@ -18,7 +18,7 @@ ssh_private_key_path = "~/.ssh/sonicKey.pem"
 ssh_user             = "ubuntu"
 
 # Instance Configuration
-chain_instance_type = "c6i.4xlarge"  # 16 vCPU, 32 GB RAM
+chain_instance_type = "c6i.8xlarge"  # 32 vCPU, 64 GB RAM
 tps_instance_type   = "t3.medium"    # 2 vCPU, 4 GB RAM
 chain_volume_size   = 200            # GB
 
@@ -29,5 +29,5 @@ project_name = "ethereum-testnet"
 allowed_ssh_cidrs = ["0.0.0.0/0"]
 allowed_rpc_cidrs = ["0.0.0.0/0"]
 
-# Elastic IP
+# Elastic IP (disabled for TPS node to avoid limit)
 use_elastic_ip = true

@@ -254,6 +254,7 @@
       stat:
         path: "{{ playbook_dir }}/../performance-dashboard-v2.json"
       delegate_to: localhost
+      become: no
       register: dashboard_file
 
     - name: Copy dashboard to remote

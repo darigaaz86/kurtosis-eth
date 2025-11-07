@@ -199,10 +199,56 @@ func fundAccountsParallel(config Config, accounts []Account) error {
 	wg.Wait()
 
 	log.Printf("Total funding complete: funded %d, skipped %d", totalFunded, totalSkipped)
-	log.Println("Waiting 5 seconds for transactions to be mined...")
-	time.Sleep(5 * time.Second)
+
+	// Wait for txpool to be empty (all funding transactions mined)
+	log.Println("Waiting for all funding transactions to be mined...")
+	if err := waitForEmptyTxpool(config.Endpoints[0]); err != nil {
+		log.Printf("Warning: Failed to verify txpool is empty: %v", err)
+		log.Println("Waiting 10 seconds as fallback...")
+		time.Sleep(10 * time.Second)
+	} else {
+		log.Println("All funding transactions mined successfully!")
+	}
 
 	return nil
+}
+
+func waitForEmptyTxpool(endpoint string) error {
+	client, err := ethclient.Dial(endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	ctx := context.Background()
+	maxWaitTime := 5 * time.Minute
+	checkInterval := 3 * time.Second
+	startTime := time.Now()
+
+	for {
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("timeout waiting for txpool to empty")
+		}
+
+		// Check txpool status
+		var result map[string]interface{}
+		err := client.Client().CallContext(ctx, &result, "txpool_status")
+		if err != nil {
+			log.Printf("Failed to get txpool status: %v, retrying...", err)
+			time.Sleep(checkInterval)
+			continue
+		}
+
+		pending := result["pending"].(string)
+		queued := result["queued"].(string)
+
+		if pending == "0x0" && queued == "0x0" {
+			return nil
+		}
+
+		log.Printf("Txpool status - pending: %s, queued: %s (waiting...)", pending, queued)
+		time.Sleep(checkInterval)
+	}
 }
 
 func fundWithFunder(config Config, funderKeyHex string, endpoint string, accounts []Account, funderIdx int) (int, int) {
