@@ -2,7 +2,7 @@
 
 terraform {
   required_version = ">= 1.0"
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -43,7 +43,7 @@ module "vpc" {
   public_subnets  = var.public_subnet_cidrs
 
   enable_nat_gateway   = true
-  single_nat_gateway   = true  # Use single NAT gateway to save costs and EIPs
+  single_nat_gateway   = true # Use single NAT gateway to save costs and EIPs
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -98,8 +98,8 @@ module "eks" {
     main = {
       name = "${var.cluster_name}-main"
 
-      ami_type       = "AL2023_x86_64_STANDARD"  # Amazon Linux 2023
-      instance_types = ["c5.2xlarge"]  # 8 vCPU, 16GB RAM
+      ami_type       = "AL2023_x86_64_STANDARD" # Amazon Linux 2023
+      instance_types = ["c5.2xlarge"]           # 8 vCPU, 16GB RAM
       capacity_type  = "ON_DEMAND"
 
       min_size     = 3
@@ -164,7 +164,7 @@ module "eks" {
       type        = "ingress"
       self        = true
     }
-    
+
     # P2P ports for Ethereum
     ingress_p2p_tcp = {
       description = "Ethereum P2P TCP"
@@ -174,7 +174,7 @@ module "eks" {
       type        = "ingress"
       cidr_blocks = ["0.0.0.0/0"]
     }
-    
+
     ingress_p2p_udp = {
       description = "Ethereum P2P UDP"
       protocol    = "udp"
@@ -183,7 +183,7 @@ module "eks" {
       type        = "ingress"
       cidr_blocks = ["0.0.0.0/0"]
     }
-    
+
     # Beacon node P2P
     ingress_beacon_p2p = {
       description = "Beacon node P2P"
@@ -193,7 +193,7 @@ module "eks" {
       type        = "ingress"
       cidr_blocks = ["0.0.0.0/0"]
     }
-    
+
     egress_all = {
       description = "Node all egress"
       protocol    = "-1"
@@ -209,7 +209,7 @@ module "eks" {
 
   # Cluster access entry - allow current user admin access
   enable_cluster_creator_admin_permissions = true
-  
+
   # Authentication mode (API_AND_CONFIG_MAP for backward compatibility)
   authentication_mode = "API_AND_CONFIG_MAP"
 
@@ -227,10 +227,10 @@ resource "kubernetes_storage_class" "fast_ssd" {
   volume_binding_mode = "WaitForFirstConsumer"
 
   parameters = {
-    type      = "gp3"
-    iops      = "3000"
+    type       = "gp3"
+    iops       = "3000"
     throughput = "125"
-    encrypted = "true"
+    encrypted  = "true"
   }
 
   depends_on = [module.eks]
@@ -258,7 +258,7 @@ resource "kubernetes_storage_class" "standard" {
 resource "kubernetes_namespace" "kurtosis_cloud" {
   metadata {
     name = "kurtosis-cloud"
-    
+
     labels = {
       name = "kurtosis-cloud"
     }
