@@ -207,6 +207,9 @@ func fundAccountsParallel(config Config, accounts []Account) error {
 		log.Println("Waiting 10 seconds as fallback...")
 		time.Sleep(10 * time.Second)
 	} else {
+		log.Println("Txpool is empty, waiting for additional blocks to confirm...")
+		// Wait for 3 more blocks to ensure transactions are confirmed
+		time.Sleep(10 * time.Second)
 		log.Println("All funding transactions mined successfully!")
 	}
 
@@ -224,6 +227,8 @@ func waitForEmptyTxpool(endpoint string) error {
 	maxWaitTime := 5 * time.Minute
 	checkInterval := 3 * time.Second
 	startTime := time.Now()
+	emptyCount := 0
+	requiredEmptyChecks := 3 // Require txpool to be empty for 3 consecutive checks
 
 	for {
 		if time.Since(startTime) > maxWaitTime {
@@ -243,10 +248,16 @@ func waitForEmptyTxpool(endpoint string) error {
 		queued := result["queued"].(string)
 
 		if pending == "0x0" && queued == "0x0" {
-			return nil
+			emptyCount++
+			if emptyCount >= requiredEmptyChecks {
+				return nil
+			}
+			log.Printf("Txpool empty (%d/%d checks)", emptyCount, requiredEmptyChecks)
+		} else {
+			emptyCount = 0 // Reset counter if txpool is not empty
+			log.Printf("Txpool status - pending: %s, queued: %s (waiting...)", pending, queued)
 		}
 
-		log.Printf("Txpool status - pending: %s, queued: %s (waiting...)", pending, queued)
 		time.Sleep(checkInterval)
 	}
 }

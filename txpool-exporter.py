@@ -9,16 +9,16 @@ import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-# Configuration
+# Configuration - Will be updated by Ansible with actual RPC ports
 RPC_URLS = [
-    "http://127.0.0.1:33346",
-    "http://127.0.0.1:33341",
-    "http://127.0.0.1:33336",
-    "http://127.0.0.1:33331",
-    "http://127.0.0.1:33326",
-    "http://127.0.0.1:33321",
-    "http://127.0.0.1:33316",
-    "http://127.0.0.1:33311"
+    "http://127.0.0.1:32769",
+    "http://127.0.0.1:32774",
+    "http://127.0.0.1:32779",
+    "http://127.0.0.1:32784",
+    "http://127.0.0.1:32789",
+    "http://127.0.0.1:32794",
+    "http://127.0.0.1:32799",
+    "http://127.0.0.1:32804"
 ]
 EXPORTER_PORT = 9200
 UPDATE_INTERVAL = 5  # seconds
