@@ -1,0 +1,127 @@
+# Ethereum Testnet Configuration for Kubernetes
+# This configuration deploys an 8-node testnet with Reth + Lighthouse
+
+# Participants define the EL+CL pairs
+participants:
+  # 8 Reth + Lighthouse node pairs
+  - el_type: reth
+    el_image: "ghcr.io/paradigmxyz/reth:latest"
+    cl_type: lighthouse
+    cl_image: "sigp/lighthouse:latest"
+    count: 8
+    el_extra_params:
+      - "--max-outbound-peers=50"
+      - "--max-inbound-peers=50"
+      - "--discovery.port=30303"
+    cl_extra_params:
+      - "--target-peers=50"
+      - "--subscribe-all-subnets"
+    validator_count: 64  # 64 validators per node pair
+
+# Network parameters
+network_params:
+  # Network identification
+  network_id: "3151908"
+  deposit_contract_address: "0x00000000219ab540356cBB839Cbe05303d7705Fa"
+  
+  # Timing parameters
+  seconds_per_slot: 3
+  slots_per_epoch: 32
+  genesis_delay: 60
+  
+  # Prefunded accounts
+  preregistered_validator_keys_mnemonic: "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete"
+  num_validator_keys_per_node: 64
+  
+  # Fork configuration - all forks active from genesis
+  altair_fork_epoch: 0
+  bellatrix_fork_epoch: 0
+  capella_fork_epoch: 0
+  deneb_fork_epoch: 0
+  electra_fork_epoch: 999999999
+  
+  # Network configuration
+  network_name: "real-chain"
+  min_validator_withdrawability_delay: 256
+  shard_committee_period: 256
+
+# Enable persistent storage
+persistent: true
+
+# Additional services configuration
+additional_services:
+  # Transaction fuzzer for load testing
+  - tx_spammer
+
+# Prometheus monitoring
+prometheus_params:
+  enabled: true
+  storage_size: "50Gi"
+  retention_time: "7d"
+  scrape_interval: "15s"
+
+# Grafana dashboards
+grafana_params:
+  enabled: true
+  storage_size: "10Gi"
+  admin_password: "admin"  # Change in production!
+
+# Distributed tracing (optional)
+# tempo_params:
+#   enabled: true
+#   storage_size: "20Gi"
+
+# MEV configuration (optional)
+# mev_params:
+#   mev_relay_image: "flashbots/mev-relay:latest"
+#   mev_builder_image: "flashbots/mev-builder:latest"
+#   mev_boost_image: "flashbots/mev-boost:latest"
+#   mev_relay_api_extra_args: []
+#   mev_relay_housekeeper_extra_args: []
+#   mev_relay_website_extra_args: []
+#   mev_builder_extra_args: []
+#   mev_boost_extra_args: []
+#   mev_flood_image: "flashbots/mev-flood:latest"
+#   mev_flood_extra_args: []
+#   mev_flood_seconds_per_bundle: 15
+
+# Assertoor for testing (optional)
+# assertoor_params:
+#   enabled: true
+#   image: "ethpandaops/assertoor:latest"
+
+# Dora block explorer (optional)
+# dora_params:
+#   enabled: true
+#   image: "ethpandaops/dora:latest"
+
+# Blockscout explorer (optional)
+# blockscout_params:
+#   enabled: true
+#   image: "blockscout/blockscout:latest"
+
+# Global tolerations for Kubernetes scheduling
+global_tolerations: []
+
+# Global node selector
+global_node_selectors: {}
+
+# Global log level
+global_log_level: "info"
+
+# Parallel keystore generation for faster startup
+parallel_keystore_generation: true
+
+# Disable peer scoring (useful for small testnets)
+disable_peer_scoring: false
+
+# Wait for finalization before considering network ready
+wait_for_finalization: false
+
+# Verifications to run after network is up
+# verifications:
+#   - type: "block_production"
+#     timeout: "5m"
+#   - type: "peer_connectivity"
+#     min_peers: 3
+#     timeout: "2m"
