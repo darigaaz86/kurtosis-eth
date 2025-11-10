@@ -105,32 +105,10 @@ module "eks" {
       max_size     = 5
       desired_size = 3
 
-      block_device_mappings = {
-        xvda = {
-          device_name = "/dev/xvda"
-          ebs = {
-            volume_size           = 300
-            volume_type           = "gp3"
-            iops                  = 3000
-            throughput            = 125
-            encrypted             = true
-            delete_on_termination = true
-          }
-        }
-      }
+      disk_size = 300  # Sufficient for blockchain data
 
       labels = {
         role = "main"
-      }
-
-      # For EKS 1.32+, disable custom launch template to use EKS-managed nodeadm
-      use_custom_launch_template = false
-      
-      # Enable IMDSv2
-      metadata_options = {
-        http_endpoint               = "enabled"
-        http_tokens                 = "required"
-        http_put_response_hop_limit = 2
       }
 
       tags = merge(
