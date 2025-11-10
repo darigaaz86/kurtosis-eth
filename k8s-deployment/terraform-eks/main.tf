@@ -43,7 +43,7 @@ module "vpc" {
   public_subnets  = var.public_subnet_cidrs
 
   enable_nat_gateway   = true
-  single_nat_gateway   = false
+  single_nat_gateway   = true  # Use single NAT gateway to save costs and EIPs
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -105,10 +105,32 @@ module "eks" {
       max_size     = 5
       desired_size = 3
 
-      disk_size = 300  # Sufficient for blockchain data
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 300
+            volume_type           = "gp3"
+            iops                  = 3000
+            throughput            = 125
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
 
       labels = {
         role = "main"
+      }
+
+      # For EKS 1.32+, disable custom launch template to use EKS-managed nodeadm
+      use_custom_launch_template = false
+      
+      # Enable IMDSv2
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
       }
 
       tags = merge(
