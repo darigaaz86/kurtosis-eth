@@ -64,7 +64,7 @@ module "vpc" {
 # EKS Cluster
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.0"
+  version = "~> 20.0"
 
   cluster_name    = var.cluster_name
   cluster_version = var.kubernetes_version
@@ -98,14 +98,36 @@ module "eks" {
     main = {
       name = "${var.cluster_name}-main"
 
-      instance_types = ["c5.2xlarge"]  # 8 vCPU, 16GB RAM (cheaper than c5.4xlarge)
+      ami_type       = "AL2023_x86_64_STANDARD"  # Amazon Linux 2023
+      instance_types = ["c5.2xlarge"]  # 8 vCPU, 16GB RAM
       capacity_type  = "ON_DEMAND"
 
       min_size     = 3
       max_size     = 5
       desired_size = 3
 
-      disk_size = 300  # Sufficient for blockchain data
+      # Use block_device_mappings instead of disk_size for v20+
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 300
+            volume_type           = "gp3"
+            iops                  = 3000
+            throughput            = 125
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
+
+      # Enable IMDSv2
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
+        instance_metadata_tags      = "disabled"
+      }
 
       labels = {
         role = "main"
@@ -184,6 +206,12 @@ module "eks" {
 
   # Enable IRSA (IAM Roles for Service Accounts)
   enable_irsa = true
+
+  # Cluster access entry - allow current user admin access
+  enable_cluster_creator_admin_permissions = true
+  
+  # Authentication mode (API_AND_CONFIG_MAP for backward compatibility)
+  authentication_mode = "API_AND_CONFIG_MAP"
 
   tags = var.tags
 }
