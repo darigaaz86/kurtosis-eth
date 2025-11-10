@@ -94,60 +94,27 @@ module "eks" {
 
   # Node groups
   eks_managed_node_groups = {
-    # General purpose node group
-    general = {
-      name = "${var.cluster_name}-general"
+    # Single node group for all workloads
+    main = {
+      name = "${var.cluster_name}-main"
 
-      instance_types = ["c5.4xlarge"]
+      instance_types = ["c5.2xlarge"]  # 8 vCPU, 16GB RAM (cheaper than c5.4xlarge)
       capacity_type  = "ON_DEMAND"
 
       min_size     = 3
-      max_size     = 6
+      max_size     = 5
       desired_size = 3
 
-      disk_size = 100
+      disk_size = 300  # Sufficient for blockchain data
 
       labels = {
-        role = "general"
+        role = "main"
       }
 
       tags = merge(
         var.tags,
         {
-          Name = "${var.cluster_name}-general-node"
-        }
-      )
-    }
-
-    # Blockchain node group with larger storage
-    blockchain = {
-      name = "${var.cluster_name}-blockchain"
-
-      instance_types = ["c5.4xlarge"]
-      capacity_type  = "ON_DEMAND"
-
-      min_size     = 3
-      max_size     = 10
-      desired_size = 3
-
-      disk_size = 500  # Larger disk for blockchain data
-
-      labels = {
-        role = "blockchain"
-      }
-
-      taints = [
-        {
-          key    = "blockchain"
-          value  = "true"
-          effect = "NoSchedule"
-        }
-      ]
-
-      tags = merge(
-        var.tags,
-        {
-          Name = "${var.cluster_name}-blockchain-node"
+          Name = "${var.cluster_name}-main-node"
         }
       )
     }

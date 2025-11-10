@@ -62,7 +62,9 @@ check_prerequisites() {
 deploy_eks_cluster() {
     log_info "Deploying EKS cluster..."
     
-    cd terraform-eks
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    pushd "$SCRIPT_DIR/terraform-eks" > /dev/null
     
     terraform init
     terraform plan -out=tfplan
@@ -71,7 +73,7 @@ deploy_eks_cluster() {
     log_info "Configuring kubectl..."
     aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
     
-    cd ..
+    popd > /dev/null
     
     log_info "EKS cluster deployed successfully"
 }
@@ -132,16 +134,19 @@ configure_kurtosis_cli() {
 deploy_ethereum_testnet() {
     log_info "Deploying Ethereum testnet..."
     
-    if [ ! -f "$NETWORK_PARAMS_FILE" ]; then
-        log_error "Network parameters file not found: $NETWORK_PARAMS_FILE"
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local PARAMS_PATH="$SCRIPT_DIR/$NETWORK_PARAMS_FILE"
+    
+    if [ ! -f "$PARAMS_PATH" ]; then
+        log_error "Network parameters file not found: $PARAMS_PATH"
         exit 1
     fi
     
-    log_info "Using configuration: $NETWORK_PARAMS_FILE"
+    log_info "Using configuration: $PARAMS_PATH"
     
     # Deploy the testnet
     kurtosis run github.com/ethpandaops/ethereum-package \
-        --args-file "$NETWORK_PARAMS_FILE" \
+        --args-file "$PARAMS_PATH" \
         --enclave "$ENCLAVE_NAME"
     
     log_info "Ethereum testnet deployed successfully"

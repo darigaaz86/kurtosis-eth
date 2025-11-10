@@ -3,20 +3,20 @@
 
 # Participants define the EL+CL pairs
 participants:
-  # 8 Reth + Lighthouse node pairs
+  # 4 Reth + Lighthouse node pairs (reduced for cost optimization)
   - el_type: reth
     el_image: "ghcr.io/paradigmxyz/reth:latest"
     cl_type: lighthouse
     cl_image: "sigp/lighthouse:latest"
-    count: 8
+    count: 4
     el_extra_params:
-      - "--max-outbound-peers=50"
-      - "--max-inbound-peers=50"
+      - "--max-outbound-peers=25"
+      - "--max-inbound-peers=25"
       - "--discovery.port=30303"
     cl_extra_params:
-      - "--target-peers=50"
+      - "--target-peers=25"
       - "--subscribe-all-subnets"
-    validator_count: 64  # 64 validators per node pair
+    validator_count: 64  # 64 validators per node pair (256 total)
 
 # Network parameters
 network_params:
