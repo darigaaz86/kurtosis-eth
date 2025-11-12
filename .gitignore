@@ -6,6 +6,10 @@ terraform/terraform.tfstate.backup
 terraform/tfplan
 terraform/terraform.tfvars
 terraform/.terraform.tfstate.lock.info
+k8s-deployment/terraform-*/.terraform/
+k8s-deployment/terraform-*/terraform.tfstate*
+k8s-deployment/terraform-*/tfplan
+k8s-deployment/terraform-*/terraform.tfvars
 
 # Ansible
 ansible/inventory.ini
@@ -19,6 +23,10 @@ id_rsa*
 
 # Logs
 *.log
+
+# Compiled binaries
+k8s-deployment/tps-test/tps-test
+tps-test
 
 # OS
 .DS_Store

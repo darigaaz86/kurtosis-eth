@@ -89,6 +89,7 @@ module "eks" {
     }
     aws-ebs-csi-driver = {
       most_recent = true
+      service_account_role_arn = module.ebs_csi_irsa_role.iam_role_arn
     }
   }
 
@@ -216,6 +217,25 @@ module "eks" {
   tags = var.tags
 }
 
+# EBS CSI Driver IAM Role for Service Account (IRSA)
+module "ebs_csi_irsa_role" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.0"
+
+  role_name = "${var.cluster_name}-ebs-csi-driver"
+
+  attach_ebs_csi_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"]
+    }
+  }
+
+  tags = var.tags
+}
+
 # Storage class for fast SSD
 resource "kubernetes_storage_class" "fast_ssd" {
   metadata {
@@ -252,6 +272,37 @@ resource "kubernetes_storage_class" "standard" {
   }
 
   depends_on = [module.eks]
+}
+
+# Storage class for gp3 (default)
+resource "kubernetes_storage_class" "gp3" {
+  metadata {
+    name = "gp3"
+    annotations = {
+      "storageclass.kubernetes.io/is-default-class" = "true"
+    }
+  }
+
+  storage_provisioner    = "ebs.csi.aws.com"
+  reclaim_policy         = "Delete"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = true
+
+  parameters = {
+    type      = "gp3"
+    encrypted = "true"
+  }
+
+  depends_on = [module.eks]
+}
+
+# Remove default annotation from gp2 storage class
+resource "null_resource" "remove_gp2_default" {
+  provisioner "local-exec" {
+    command = "kubectl annotate storageclass gp2 storageclass.kubernetes.io/is-default-class- --overwrite || true"
+  }
+
+  depends_on = [module.eks, kubernetes_storage_class.gp3]
 }
 
 # Namespace for Kurtosis

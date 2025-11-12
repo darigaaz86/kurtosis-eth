@@ -1,0 +1,200 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: txpool-exporter-script
+  namespace: kt-eth-testnet
+data:
+  txpool-exporter.py: |
+    #!/usr/bin/env python3
+    """
+    Txpool Prometheus Exporter for Kubernetes
+    Exports Ethereum txpool metrics to Prometheus
+    """
+    import json
+    import time
+    import requests
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+    import os
+
+    # Configuration - Auto-discover RPC endpoints from environment
+    NUM_NODES = int(os.getenv("NUM_NODES", "8"))
+    RPC_URLS = [f"http://el-{i}-reth-lighthouse:8545" for i in range(1, NUM_NODES + 1)]
+    EXPORTER_PORT = 9200
+    UPDATE_INTERVAL = int(os.getenv("UPDATE_INTERVAL", "5"))
+
+    # Global metrics storage
+    metrics = {
+        "pending": {},
+        "queued": {}
+    }
+
+    def get_txpool_status(rpc_url, node_name):
+        """Get txpool status from RPC endpoint"""
+        try:
+            response = requests.post(
+                rpc_url,
+                json={"jsonrpc": "2.0", "method": "txpool_status", "params": [], "id": 1},
+                timeout=5
+            )
+            result = response.json().get("result", {})
+            return {
+                "pending": int(result.get("pending", "0x0"), 16),
+                "queued": int(result.get("queued", "0x0"), 16)
+            }
+        except Exception as e:
+            print(f"Error fetching txpool from {node_name} ({rpc_url}): {e}")
+            return {"pending": 0, "queued": 0}
+
+    def update_metrics():
+        """Update metrics from all RPC endpoints"""
+        global metrics
+        while True:
+            for idx, rpc_url in enumerate(RPC_URLS):
+                node_name = f"el-{idx+1}-reth-lighthouse"
+                status = get_txpool_status(rpc_url, node_name)
+                metrics["pending"][node_name] = status["pending"]
+                metrics["queued"][node_name] = status["queued"]
+            time.sleep(UPDATE_INTERVAL)
+
+    class MetricsHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/metrics":
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain")
+                self.end_headers()
+                
+                # Generate Prometheus metrics
+                output = []
+                output.append("# HELP txpool_pending_transactions Number of pending transactions in txpool")
+                output.append("# TYPE txpool_pending_transactions gauge")
+                for node, count in metrics["pending"].items():
+                    output.append(f'txpool_pending_transactions{{node="{node}"}} {count}')
+                
+                output.append("# HELP txpool_queued_transactions Number of queued transactions in txpool")
+                output.append("# TYPE txpool_queued_transactions gauge")
+                for node, count in metrics["queued"].items():
+                    output.append(f'txpool_queued_transactions{{node="{node}"}} {count}')
+                
+                output.append("# HELP txpool_total_transactions Total transactions in txpool")
+                output.append("# TYPE txpool_total_transactions gauge")
+                for node in metrics["pending"].keys():
+                    total = metrics["pending"].get(node, 0) + metrics["queued"].get(node, 0)
+                    output.append(f'txpool_total_transactions{{node="{node}"}} {total}')
+                
+                self.wfile.write("\n".join(output).encode())
+            elif self.path == "/health":
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"OK")
+            else:
+                self.send_response(404)
+                self.end_headers()
+        
+        def log_message(self, format, *args):
+            pass  # Suppress logs
+
+    if __name__ == "__main__":
+        # Start metrics updater thread
+        updater = threading.Thread(target=update_metrics, daemon=True)
+        updater.start()
+        
+        # Start HTTP server
+        server = HTTPServer(("0.0.0.0", EXPORTER_PORT), MetricsHandler)
+        print(f"Txpool exporter running on port {EXPORTER_PORT}")
+        print(f"Monitoring {len(RPC_URLS)} RPC endpoints")
+        print(f"Update interval: {UPDATE_INTERVAL} seconds")
+        server.serve_forever()
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: txpool-exporter
+  namespace: kt-eth-testnet
+  labels:
+    app: txpool-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: txpool-exporter
+  template:
+    metadata:
+      labels:
+        app: txpool-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9200"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: txpool-exporter
+        image: python:3.11-slim
+        command:
+          - /bin/sh
+          - -c
+          - |
+            pip install requests && \
+            python /app/txpool-exporter.py
+        env:
+        - name: NUM_NODES
+          value: "8"
+        - name: UPDATE_INTERVAL
+          value: "5"
+        ports:
+        - name: metrics
+          containerPort: 9200
+          protocol: TCP
+        volumeMounts:
+        - name: exporter-script
+          mountPath: /app
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9200
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9200
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+      volumes:
+      - name: exporter-script
+        configMap:
+          name: txpool-exporter-script
+          defaultMode: 0755
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: txpool-exporter
+  namespace: kt-eth-testnet
+  labels:
+    app: txpool-exporter
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9200"
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 9200
+    targetPort: 9200
+    protocol: TCP
+  selector:
+    app: txpool-exporter
+
+# ServiceMonitor removed - Prometheus will auto-discover via annotations

@@ -1,349 +1,568 @@
-# Ethereum Testnet on Kubernetes with Kurtosis
+# Ethereum Testnet on Kubernetes (EKS)
 
-This directory contains everything needed to deploy an Ethereum testnet on Kubernetes using Kurtosis.
+Complete guide for deploying an Ethereum testnet on AWS EKS using Kurtosis.
 
 ## Overview
 
-This deployment uses:
-- **Kurtosis**: For packaging and orchestrating the Ethereum testnet
-- **Kubernetes**: For container orchestration and resource management
-- **Ethereum Package**: The ethpandaops/ethereum-package for testnet configuration
-
-## Architecture
-
-```
-Kubernetes Cluster
-├── Kurtosis Cloud Controller (manages enclaves)
-├── Ethereum Enclave
-│   ├── 8x Reth (Execution Layer)
-│   ├── 8x Lighthouse (Consensus Layer)
-│   └── 4x Validator Clients (256 validators total)
-└── Monitoring Stack
-    ├── Prometheus
-    ├── Grafana
-    └── Tempo (optional)
-```
+This deployment creates:
+- **EKS 1.31 cluster** with 3 c5.2xlarge nodes
+- **8 Reth + Lighthouse node pairs** (256 validators total)
+- **Prometheus + Grafana** monitoring stack
+- **Persistent storage** using EBS CSI driver with gp3 volumes
 
 ## Prerequisites
 
 ### Required Tools
-- `kubectl` - Kubernetes CLI
-- `helm` - Kubernetes package manager
-- `kurtosis` - Kurtosis CLI
-- AWS CLI (if using EKS) or equivalent for your cloud provider
 
-### Cluster Requirements
-- **Nodes**: 3+ worker nodes
-- **Instance Type**: c5.4xlarge or equivalent (16 vCPU, 32GB RAM)
-- **Storage**: 500GB+ per node
-- **Kubernetes Version**: 1.24+
+```bash
+# Check if tools are installed
+kubectl version --client
+terraform version
+kurtosis version
+aws --version
+```
+
+### Install Missing Tools
+
+**macOS:**
+```bash
+# Kubectl
+brew install kubectl
+
+# Terraform
+brew install terraform
+
+# Kurtosis
+brew install kurtosis-tech/tap/kurtosis
+
+# AWS CLI
+brew install awscli
+```
+
+### AWS Configuration
+
+1. **Configure AWS credentials:**
+```bash
+aws configure
+```
+
+2. **Verify access:**
+```bash
+aws sts get-caller-identity
+```
+
+3. **Check EIP limits:**
+```bash
+aws ec2 describe-addresses --region ap-southeast-1
+```
+> Note: You need at least 1 available Elastic IP. Default limit is 5 per region.
 
 ## Quick Start
 
-### 1. Set Up Kubernetes Cluster
+### Automated Deployment
 
-#### Option A: AWS EKS
 ```bash
-# Create EKS cluster
-cd terraform-eks
+cd k8s-deployment
+./deploy.sh
+```
+
+This script will:
+1. ✅ Check prerequisites
+2. ✅ Deploy EKS cluster (if not exists)
+3. ✅ Verify cluster connectivity
+4. ✅ Configure storage classes
+5. ✅ Setup Kurtosis configuration
+6. ✅ Start Kurtosis gateway
+7. ✅ Deploy Ethereum testnet
+
+**Deployment time:** ~15-20 minutes
+
+## Manual Deployment
+
+### Step 1: Deploy EKS Cluster
+
+```bash
+cd k8s-deployment/terraform-eks
+
+# Initialize Terraform
 terraform init
+
+# Review the plan
+terraform plan
+
+# Deploy
 terraform apply
 
 # Configure kubectl
-aws eks update-kubeconfig --name ethereum-testnet --region us-east-1
+aws eks update-kubeconfig --name ethereum-testnet --region ap-southeast-1
 ```
 
-#### Option B: Existing Cluster
+### Step 2: Verify Cluster
+
 ```bash
-# Verify cluster access
+# Check cluster info
 kubectl cluster-info
+
+# Check nodes
 kubectl get nodes
+
+# Wait for nodes to be ready
+kubectl wait --for=condition=ready node --all --timeout=300s
 ```
 
-### 2. Install Kurtosis on Kubernetes
+### Step 3: Configure Kurtosis
 
-```bash
-# Add Kurtosis Helm repository
-helm repo add kurtosis https://helm.kurtosis.com
-helm repo update
+Create or update `~/Library/Application Support/kurtosis/kurtosis-config.yml`:
 
-# Install Kurtosis Cloud Controller
-helm install kurtosis-cloud kurtosis/kurtosis-cloud \
-  --namespace kurtosis-cloud \
-  --create-namespace \
-  --values kurtosis-values.yaml
-
-# Verify installation
-kubectl get pods -n kurtosis-cloud
+```yaml
+config-version: 2
+should-send-metrics: true
+kurtosis-clusters:
+  docker:
+    type: "docker"
+  ethereum-testnet:
+    type: "kubernetes"
+    config:
+      kubernetes-cluster-name: "ethereum-testnet"
+      storage-class: "gp3"
+      enclave-size-in-megabytes: 10
 ```
 
-### 3. Configure Kurtosis CLI
+### Step 4: Start Kurtosis Gateway
 
 ```bash
-# Set Kubernetes as the backend
-kurtosis cluster set kubernetes
+# Start gateway in background
+nohup kurtosis gateway > /tmp/kurtosis-gateway.log 2>&1 &
 
-# Verify connection
-kurtosis cluster ls
+# Verify it's running
+ps aux | grep "kurtosis gateway"
 ```
 
-### 4. Deploy Ethereum Testnet
+### Step 5: Deploy Ethereum Testnet
 
 ```bash
-# Deploy using the provided configuration
+cd k8s-deployment
+
+# Deploy using the network parameters
 kurtosis run github.com/ethpandaops/ethereum-package \
-  --args-file network-params.yaml \
+  --args-file ../network_params.yaml \
   --enclave eth-testnet
-
-# Monitor deployment
-kurtosis enclave inspect eth-testnet
-```
-
-### 5. Access Services
-
-```bash
-# Get service endpoints
-kubectl get svc -n eth-testnet
-
-# Access Grafana
-kubectl port-forward -n eth-testnet svc/grafana 3000:3000
-# Open http://localhost:3000 (admin/admin)
-
-# Access RPC endpoint
-export RPC_URL=$(kubectl get svc -n eth-testnet reth-rpc -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-curl -X POST -H "Content-Type: application/json" \
-  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-  http://$RPC_URL:8545
 ```
 
 ## Configuration
 
 ### Network Parameters
 
-Edit `network-params.yaml` to customize:
-- Number of nodes
-- Client types (Reth, Geth, Besu, etc.)
-- Validator distribution
-- Network parameters (chain ID, slot time, etc.)
-- Monitoring options
+Edit `network_params.yaml` to customize:
 
-### Resource Allocation
+```yaml
+participants:
+  - el_type: reth
+    cl_type: lighthouse
+    count: 8              # Number of node pairs
+    validator_count: 32   # Validators per node
 
-Edit `kurtosis-values.yaml` to configure:
-- CPU and memory limits
-- Storage sizes
-- Node affinity rules
-- Resource quotas
-
-## Operations
-
-### Scaling
-
-```bash
-# Add more validator nodes
-kurtosis service add eth-testnet validator-5 \
-  --image sigp/lighthouse:latest
-
-# Scale existing deployment
-kubectl scale deployment reth-node-1 --replicas=2 -n eth-testnet
+network_params:
+  network_id: "3151908"
+  seconds_per_slot: 3
+  genesis_delay: 20
+  # ... more parameters
 ```
 
-### Monitoring
+### Terraform Variables
+
+Edit `k8s-deployment/terraform-eks/terraform.tfvars`:
+
+```hcl
+aws_region         = "ap-southeast-1"
+cluster_name       = "ethereum-testnet"
+kubernetes_version = "1.31"
+
+# Node configuration
+# instance_types in main.tf: c5.2xlarge (8 vCPU, 16GB RAM)
+# min_size: 3, max_size: 5, desired_size: 3
+```
+
+## Accessing Services
+
+### View Enclave Information
 
 ```bash
-# View logs
-kubectl logs -f -n eth-testnet deployment/reth-node-1
+kurtosis enclave inspect eth-testnet
+```
+
+This shows:
+- Service endpoints and ports
+- RPC URLs
+- Grafana/Prometheus URLs
+- Node information
+
+### Access Grafana
+
+```bash
+# Get Grafana port from enclave inspect
+kurtosis enclave inspect eth-testnet | grep grafana
+
+# Open Grafana
+open http://127.0.0.1:<GRAFANA_PORT>
+
+# Default credentials
+Username: admin
+Password: admin
+```
+
+### Import Additional Dashboards
+
+The deployment includes default Ethereum dashboards. To add more:
+
+**Import Performance Dashboard (Custom TPS Testing):**
+```bash
+./import-performance-dashboard.sh
+```
+
+**Import All Popular Dashboards:**
+```bash
+cd k8s-deployment
+./import-dashboards.sh
+```
+
+This imports:
+- **Ethereum Performance Analysis** (Custom TPS dashboard)
+- Kubernetes Cluster Monitoring
+- Node Exporter Full
+- Ethereum 2.0 Metrics
+- Pod Monitoring
+
+See `k8s-deployment/GRAFANA-DASHBOARDS.md` for manual import and customization.
+
+### Access Prometheus
+
+```bash
+# Get Prometheus port from enclave inspect
+open http://127.0.0.1:<PROMETHEUS_PORT>
+```
+
+### Test RPC Endpoint
+
+```bash
+# Get RPC port from enclave inspect
+curl -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+  http://127.0.0.1:<RPC_PORT>
+```
+
+### View Kubernetes Resources
+
+```bash
+# List all pods
+kubectl get pods -n kt-eth-testnet
+
+# View logs from a specific node
+kubectl logs -f -n kt-eth-testnet -l app=reth
+
+# View all services
+kubectl get svc -n kt-eth-testnet
+```
+
+## Custom Metrics Exporter
+
+### Deploy Txpool Exporter
+
+The txpool exporter collects transaction pool metrics from all nodes:
+
+```bash
+cd k8s-deployment
+./deploy-txpool-exporter.sh
+```
+
+This deploys a custom exporter that provides:
+- `txpool_pending_transactions` - Pending transactions per node
+- `txpool_queued_transactions` - Queued transactions per node
+- `txpool_total_transactions` - Total transactions per node
+
+The metrics are automatically scraped by Prometheus and available in Grafana.
+
+**View metrics:**
+```bash
+# Port forward to exporter
+kubectl port-forward -n kt-eth-testnet svc/txpool-exporter 9200:9200
 
 # Check metrics
-kubectl port-forward -n eth-testnet svc/prometheus 9090:9090
-# Open http://localhost:9090
+curl http://localhost:9200/metrics
 ```
 
-### Backup
+## Monitoring
+
+### Check Enclave Status
 
 ```bash
-# Create volume snapshot
-kubectl apply -f backup/volume-snapshot.yaml
-
-# Backup validator keys
-kubectl cp eth-testnet/validator-1:/keys ./backup/keys-$(date +%Y%m%d)
+kurtosis enclave inspect eth-testnet
 ```
 
-### Cleanup
+### View Logs
 
 ```bash
-# Remove enclave (keeps PVCs)
-kurtosis enclave rm eth-testnet
+# All logs from enclave
+kurtosis enclave logs eth-testnet
 
-# Delete everything including storage
-kubectl delete namespace eth-testnet
+# Specific service logs
+kurtosis service logs eth-testnet el-1-reth-lighthouse
+```
+
+### Kubernetes Monitoring
+
+```bash
+# Watch pods
+kubectl get pods -n kt-eth-testnet -w
+
+# Check node resources
+kubectl top nodes
+
+# Check pod resources
+kubectl top pods -n kt-eth-testnet
 ```
 
 ## Troubleshooting
 
-### Pods Not Starting
+### EKS Cluster Issues
 
+**Nodes not joining cluster:**
 ```bash
-# Check pod status
-kubectl get pods -n eth-testnet
+# Check node status
+kubectl get nodes
 
-# View pod events
-kubectl describe pod <pod-name> -n eth-testnet
+# Describe node for events
+kubectl describe node <node-name>
 
-# Check logs
-kubectl logs <pod-name> -n eth-testnet
+# Check EKS addon status
+aws eks describe-addon --cluster-name ethereum-testnet \
+  --addon-name aws-ebs-csi-driver --region ap-southeast-1
+```
+
+**EBS CSI Driver issues:**
+```bash
+# Check CSI driver pods
+kubectl get pods -n kube-system | grep ebs-csi
+
+# View CSI driver logs
+kubectl logs -n kube-system deployment/ebs-csi-controller
+```
+
+### Kurtosis Issues
+
+**Gateway not connecting:**
+```bash
+# Check if gateway is running
+ps aux | grep "kurtosis gateway"
+
+# Restart gateway
+pkill -f "kurtosis gateway"
+nohup kurtosis gateway > /tmp/kurtosis-gateway.log 2>&1 &
+
+# Check gateway logs
+tail -f /tmp/kurtosis-gateway.log
+```
+
+**Enclave deployment fails:**
+```bash
+# Check enclave status
+kurtosis enclave inspect eth-testnet
+
+# View enclave logs
+kurtosis enclave logs eth-testnet
+
+# Remove and redeploy
+kurtosis enclave rm eth-testnet --force
+kurtosis run github.com/ethpandaops/ethereum-package \
+  --args-file ../network_params.yaml \
+  --enclave eth-testnet
 ```
 
 ### Storage Issues
 
+**PVC not binding:**
 ```bash
-# Check PVC status
-kubectl get pvc -n eth-testnet
+# Check PVCs
+kubectl get pvc -n kt-eth-testnet
 
-# Check storage class
+# Check storage classes
 kubectl get storageclass
 
-# View PV details
-kubectl describe pv <pv-name>
+# Describe PVC for events
+kubectl describe pvc <pvc-name> -n kt-eth-testnet
 ```
 
-### Network Issues
+### Common Errors
+
+**Error: EIP limit exceeded**
+```bash
+# List current EIPs
+aws ec2 describe-addresses --region ap-southeast-1
+
+# Release unused EIP
+aws ec2 release-address --allocation-id <eipalloc-xxx> --region ap-southeast-1
+```
+
+**Error: AWS credentials expired**
+```bash
+# Refresh AWS credentials
+aws sso login
+
+# Or reconfigure
+aws configure
+```
+
+## Cleanup
+
+### Remove Enclave Only
 
 ```bash
-# Test pod-to-pod connectivity
-kubectl exec -it <pod-name> -n eth-testnet -- ping <other-pod-ip>
-
-# Check network policies
-kubectl get networkpolicies -n eth-testnet
-
-# View service endpoints
-kubectl get endpoints -n eth-testnet
+# Stop enclave but keep cluster
+kurtosis enclave rm eth-testnet --force
 ```
 
-### Genesis Not Triggering
+### Full Cleanup
 
 ```bash
-# Check genesis generator logs
-kubectl logs -n eth-testnet -l app=genesis-generator
+cd k8s-deployment/terraform-eks
 
-# Verify genesis files
-kubectl exec -it <beacon-pod> -n eth-testnet -- ls -la /genesis
+# Destroy all resources
+terraform destroy
 
-# Check beacon node logs
-kubectl logs -f -n eth-testnet deployment/lighthouse-beacon-1
+# Or use automated cleanup (if you created the script)
+cd ..
+./cleanup.sh
 ```
 
-## Performance Tuning
+**What gets deleted:**
+- Kurtosis enclave and all services
+- EKS cluster and node groups
+- VPC, subnets, NAT gateway
+- Security groups
+- EBS volumes
+- IAM roles
 
-### Resource Optimization
-
-```yaml
-# Adjust in network-params.yaml
-participants:
-  - el_type: reth
-    el_extra_params:
-      - "--max-outbound-peers=50"
-      - "--max-inbound-peers=50"
-    cl_extra_params:
-      - "--target-peers=50"
-```
-
-### Storage Optimization
-
-```bash
-# Use faster storage class
-kubectl patch pvc reth-node-1-data -n eth-testnet \
-  -p '{"spec":{"storageClassName":"fast-ssd"}}'
-```
-
-### Network Optimization
-
-```yaml
-# Add pod anti-affinity
-affinity:
-  podAntiAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-    - labelSelector:
-        matchExpressions:
-        - key: app
-          operator: In
-          values:
-          - reth
-      topologyKey: kubernetes.io/hostname
-```
+> ⚠️ **Warning:** This is irreversible. All data will be lost.
 
 ## Cost Optimization
 
-### Use Spot Instances
+### Current Configuration Costs (ap-southeast-1)
 
+**Compute:**
+- 3x c5.2xlarge nodes: ~$0.34/hour each = ~$1.02/hour
+- Total: ~$24.48/day or ~$734/month
+
+**Storage:**
+- 3x 300GB gp3 volumes: ~$24/month each = ~$72/month
+- EBS snapshots: Variable
+
+**Network:**
+- NAT Gateway: ~$0.045/hour = ~$32.40/month
+- Data transfer: Variable
+
+**Total estimated cost:** ~$838/month (24/7 operation)
+
+### Cost Reduction Tips
+
+1. **Stop when not in use:**
 ```bash
-# Add spot instance node group (EKS)
-eksctl create nodegroup \
-  --cluster ethereum-testnet \
-  --name spot-nodes \
-  --node-type c5.4xlarge \
-  --nodes 3 \
-  --spot
+# Scale down nodes
+kubectl scale deployment --all --replicas=0 -n kt-eth-testnet
+
+# Or destroy cluster
+terraform destroy
 ```
 
-### Storage Optimization
+2. **Use smaller instances:**
+   - Edit `main.tf`: Change `c5.2xlarge` to `c5.xlarge`
+   - Reduces compute cost by 50%
 
-```bash
-# Use cheaper storage for archival data
-kubectl patch pvc old-data -n eth-testnet \
-  -p '{"spec":{"storageClassName":"standard"}}'
+3. **Reduce node count:**
+   - Edit `terraform.tfvars`: Set `desired_size = 2`
+   - Reduces compute cost by 33%
+
+4. **Use Spot instances:**
+   - Edit `main.tf`: Set `capacity_type = "SPOT"`
+   - Saves up to 70% on compute
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     AWS EKS Cluster                      │
+│                    (Kubernetes 1.31)                     │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │   Node 1     │  │   Node 2     │  │   Node 3     │  │
+│  │ c5.2xlarge   │  │ c5.2xlarge   │  │ c5.2xlarge   │  │
+│  │ 8vCPU/16GB   │  │ 8vCPU/16GB   │  │ 8vCPU/16GB   │  │
+│  │ 300GB gp3    │  │ 300GB gp3    │  │ 300GB gp3    │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐ │
+│  │         Kurtosis Enclave: eth-testnet              │ │
+│  ├────────────────────────────────────────────────────┤ │
+│  │  • 8x Reth (Execution Layer)                       │ │
+│  │  • 8x Lighthouse (Consensus Layer)                 │ │
+│  │  • 8x Lighthouse (Validator Client)                │ │
+│  │  • 256 Validators (32 per node)                    │ │
+│  │  • Prometheus (Metrics)                            │ │
+│  │  • Grafana (Dashboards)                            │ │
+│  └────────────────────────────────────────────────────┘ │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+              ┌───────────────────────┐
+              │   Kurtosis Gateway    │
+              │   (localhost:9710)    │
+              └───────────────────────┘
 ```
 
-## Security
+## Technical Details
 
-### Network Policies
+### EKS Configuration
 
-```bash
-# Apply network policies
-kubectl apply -f security/network-policies.yaml
-```
+- **Version:** 1.31
+- **AMI:** Amazon Linux 2023 (AL2023_x86_64_STANDARD)
+- **Networking:** VPC with public/private subnets across 3 AZs
+- **Storage:** EBS CSI driver with gp3 volumes
+- **Security:** IMDSv2 enforced, encrypted volumes
 
-### Pod Security
+### Storage Classes
 
-```bash
-# Apply pod security standards
-kubectl label namespace eth-testnet \
-  pod-security.kubernetes.io/enforce=restricted
-```
+| Name | Provisioner | Type | IOPS | Throughput | Default |
+|------|-------------|------|------|------------|---------|
+| gp3 | ebs.csi.aws.com | gp3 | 3000 | 125 MB/s | ✅ |
+| fast-ssd | ebs.csi.aws.com | gp3 | 3000 | 125 MB/s | ❌ |
+| standard | ebs.csi.aws.com | gp3 | 3000 | 125 MB/s | ❌ |
 
-### Secrets Management
+### Network Configuration
 
-```bash
-# Create secret for validator keys
-kubectl create secret generic validator-keys \
-  --from-file=keys/ \
-  -n eth-testnet
-```
-
-## Advanced Topics
-
-### Multi-Region Deployment
-
-Deploy nodes across multiple regions for geo-distribution and resilience.
-
-### GitOps Integration
-
-Use ArgoCD or Flux for declarative, Git-based deployments.
-
-### Service Mesh
-
-Integrate Istio for advanced traffic management and observability.
-
-### Auto-Scaling
-
-Implement HorizontalPodAutoscaler for dynamic scaling based on load.
+- **Network ID:** 3151908
+- **Slot Time:** 3 seconds
+- **Genesis Delay:** 20 seconds
+- **Validators:** 256 total (32 per node)
+- **Forks:** All active from genesis (Deneb, Electra)
 
 ## Support
 
-- **Kurtosis Docs**: https://docs.kurtosis.com/k8s/
-- **Ethereum Package**: https://github.com/ethpandaops/ethereum-package
-- **Issues**: File issues in the repository
+### Useful Links
+
+- [Kurtosis Documentation](https://docs.kurtosis.com/)
+- [Ethereum Package](https://github.com/ethpandaops/ethereum-package)
+- [EKS Documentation](https://docs.aws.amazon.com/eks/)
+- [Reth Documentation](https://paradigmxyz.github.io/reth/)
+- [Lighthouse Documentation](https://lighthouse-book.sigmaprime.io/)
+
+### Getting Help
+
+1. Check logs: `kurtosis enclave logs eth-testnet`
+2. Inspect enclave: `kurtosis enclave inspect eth-testnet`
+3. Check Kubernetes events: `kubectl get events -n kt-eth-testnet`
+4. Review this README's troubleshooting section
 
 ## License
 
-MIT License - see LICENSE file for details
+This deployment configuration is provided as-is for educational and testing purposes.
