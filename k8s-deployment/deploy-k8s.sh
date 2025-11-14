@@ -234,6 +234,34 @@ deploy_txpool_exporter() {
     log_info "✓ Txpool exporter deployed"
 }
 
+deploy_prometheus_txpool() {
+    log_step "Deploying Prometheus for txpool monitoring..."
+    
+    local NAMESPACE="kt-$ENCLAVE_NAME"
+    
+    # Check if namespace exists
+    if ! kubectl get namespace "$NAMESPACE" &> /dev/null; then
+        log_warn "Namespace $NAMESPACE not found, skipping prometheus-txpool deployment"
+        return 0
+    fi
+    
+    # Deploy prometheus-txpool
+    log_info "Applying prometheus-txpool manifests..."
+    kubectl apply -f prometheus-txpool-sidecar.yaml 2>/dev/null || {
+        log_warn "Failed to deploy prometheus-txpool (may already exist)"
+        return 0
+    }
+    
+    # Wait for deployment
+    log_info "Waiting for prometheus-txpool to be ready..."
+    kubectl wait --for=condition=available --timeout=60s \
+        deployment/prometheus-txpool -n "$NAMESPACE" 2>/dev/null || {
+        log_warn "Prometheus-txpool deployment timeout (will continue in background)"
+    }
+    
+    log_info "✓ Prometheus-txpool deployed"
+}
+
 import_grafana_dashboards() {
     log_step "Importing Grafana dashboards..."
     
@@ -339,13 +367,16 @@ main() {
     # Step 8: Deploy txpool exporter
     deploy_txpool_exporter
     
-    # Step 9: Import Grafana dashboards
+    # Step 9: Deploy prometheus-txpool
+    deploy_prometheus_txpool
+    
+    # Step 10: Import Grafana dashboards
     import_grafana_dashboards
     
-    # Step 10: Get service info
+    # Step 11: Get service info
     get_service_info
     
-    # Step 11: Show access information
+    # Step 12: Show access information
     show_access_info
     
     log_info "✓ Deployment completed successfully!"

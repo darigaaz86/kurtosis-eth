@@ -104,8 +104,8 @@ module "eks" {
       capacity_type  = "ON_DEMAND"
 
       min_size     = 3
-      max_size     = 5
-      desired_size = 3
+      max_size     = 7
+      desired_size = 7
 
       # Use block_device_mappings instead of disk_size for v20+
       block_device_mappings = {
