@@ -40,11 +40,18 @@ curl -s -X POST "$GRAFANA_USER:$GRAFANA_PASS@${GRAFANA_URL#http://}/api/datasour
   }' > /dev/null 2>&1 || echo "Data source may already exist"
 
 # Import performance dashboard if it exists
-if [ -f "../performance-dashboard-v2.json" ]; then
-    echo "Importing performance dashboard..."
+DASHBOARD_PATH="../performance-dashboard-v2.json"
+if [ ! -f "$DASHBOARD_PATH" ]; then
+    DASHBOARD_PATH="performance-dashboard-v2.json"
+fi
+
+if [ -f "$DASHBOARD_PATH" ]; then
+    echo "Importing performance dashboard from $DASHBOARD_PATH..."
     curl -s -X POST "$GRAFANA_USER:$GRAFANA_PASS@${GRAFANA_URL#http://}/api/dashboards/db" \
       -H "Content-Type: application/json" \
-      -d @../performance-dashboard-v2.json > /dev/null 2>&1 || echo "Dashboard may already exist"
+      -d @$DASHBOARD_PATH > /dev/null 2>&1 || echo "Dashboard may already exist"
+else
+    echo "Warning: performance-dashboard-v2.json not found"
 fi
 
 echo "✓ Dashboard import completed"

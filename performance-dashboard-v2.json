@@ -708,6 +708,175 @@
           "showThresholdLabels": true,
           "showThresholdMarkers": true
         }
+      },
+      {
+        "id": 24,
+        "title": "jemalloc Memory Breakdown",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "reth_jemalloc_allocated / 1024 / 1024",
+            "refId": "A",
+            "legendFormat": "{{job}} - allocated (actual app usage)",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          },
+          {
+            "expr": "reth_jemalloc_active / 1024 / 1024",
+            "refId": "B",
+            "legendFormat": "{{job}} - active (with fragmentation)",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          },
+          {
+            "expr": "reth_jemalloc_resident / 1024 / 1024",
+            "refId": "C",
+            "legendFormat": "{{job}} - resident (physical RAM)",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          },
+          {
+            "expr": "reth_jemalloc_metadata / 1024 / 1024",
+            "refId": "D",
+            "legendFormat": "{{job}} - metadata overhead",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 72},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes",
+            "custom": {
+              "axisLabel": "Memory (MB)",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never",
+              "lineWidth": 2
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": ["mean", "max", "last"]
+          }
+        }
+      },
+      {
+        "id": 25,
+        "title": "jemalloc Retained Memory (Virtual)",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "reth_jemalloc_retained / 1024 / 1024 / 1024",
+            "refId": "A",
+            "legendFormat": "{{job}} - retained (not returned to OS)",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 72},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decgbytes",
+            "custom": {
+              "axisLabel": "Virtual Memory (GB)",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never",
+              "lineWidth": 2
+            },
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "orange"
+            }
+          }
+        }
+      },
+      {
+        "id": 26,
+        "title": "Database Size (Pages)",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "sum by (job) (reth_db_table_pages)",
+            "refId": "A",
+            "legendFormat": "{{job}} - total pages",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 80},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "axisLabel": "DB Pages",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
+      },
+      {
+        "id": 27,
+        "title": "Memory Growth Rate",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "targets": [
+          {
+            "expr": "rate(reth_process_resident_memory_bytes[5m]) / 1024 / 1024",
+            "refId": "A",
+            "legendFormat": "{{job}} - MB/sec growth",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "PBFA97CFB590B2093"
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 80},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes",
+            "decimals": 2,
+            "custom": {
+              "axisLabel": "Growth Rate (MB/sec)",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          }
+        }
       }
     ]
   }

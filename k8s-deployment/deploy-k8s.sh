@@ -210,6 +210,7 @@ deploy_txpool_exporter() {
     log_step "Deploying txpool exporter..."
     
     local NAMESPACE="kt-$ENCLAVE_NAME"
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
     # Check if namespace exists
     if ! kubectl get namespace "$NAMESPACE" &> /dev/null; then
@@ -219,7 +220,7 @@ deploy_txpool_exporter() {
     
     # Deploy exporter
     log_info "Applying txpool exporter manifests..."
-    kubectl apply -f txpool-exporter-deployment.yaml 2>/dev/null || {
+    kubectl apply -f "$SCRIPT_DIR/txpool-exporter-deployment.yaml" 2>/dev/null || {
         log_warn "Failed to deploy txpool exporter (may already exist)"
         return 0
     }
@@ -238,6 +239,7 @@ deploy_prometheus_txpool() {
     log_step "Deploying Prometheus for txpool monitoring..."
     
     local NAMESPACE="kt-$ENCLAVE_NAME"
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
     # Check if namespace exists
     if ! kubectl get namespace "$NAMESPACE" &> /dev/null; then
@@ -247,7 +249,7 @@ deploy_prometheus_txpool() {
     
     # Deploy prometheus-txpool
     log_info "Applying prometheus-txpool manifests..."
-    kubectl apply -f prometheus-txpool-sidecar.yaml 2>/dev/null || {
+    kubectl apply -f "$SCRIPT_DIR/prometheus-txpool-sidecar.yaml" 2>/dev/null || {
         log_warn "Failed to deploy prometheus-txpool (may already exist)"
         return 0
     }
@@ -265,14 +267,16 @@ deploy_prometheus_txpool() {
 import_grafana_dashboards() {
     log_step "Importing Grafana dashboards..."
     
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
     # Wait a bit for Grafana to be fully ready
     log_info "Waiting for Grafana to be ready..."
     sleep 10
     
     # Run dashboard import script
-    if [ -f "./import-dashboards.sh" ]; then
+    if [ -f "$SCRIPT_DIR/import-dashboards.sh" ]; then
         log_info "Running dashboard import..."
-        ./import-dashboards.sh 2>/dev/null || {
+        bash "$SCRIPT_DIR/import-dashboards.sh" 2>/dev/null || {
             log_warn "Dashboard import had some issues (check manually)"
         }
     else

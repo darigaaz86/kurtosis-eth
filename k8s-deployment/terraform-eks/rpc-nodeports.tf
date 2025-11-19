@@ -42,7 +42,7 @@ locals {
 resource "kubernetes_service_v1" "rpc_nodeport" {
   for_each = toset(local.el_services)
   
-  depends_on = [module.eks, data.kubernetes_service_v1.el_1_service]
+  depends_on = [module.eks]
 
   metadata {
     name      = "${each.key}-nodeport"

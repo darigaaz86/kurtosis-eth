@@ -95,24 +95,24 @@ module "eks" {
 
   # Node groups
   eks_managed_node_groups = {
-    # Single node group for all workloads
-    main = {
-      name = "${var.cluster_name}-main"
+    # High-performance nodes with NVMe storage for EL nodes
+    storage = {
+      name = "${var.cluster_name}-stor"
 
-      ami_type       = "AL2023_x86_64_STANDARD" # Amazon Linux 2023
-      instance_types = ["c5.2xlarge"]           # 8 vCPU, 16GB RAM
+      ami_type       = "AL2023_x86_64_STANDARD"
+      instance_types = ["i4i.2xlarge"] # 8 vCPU, 64GB RAM, 1.875TB NVMe SSD
       capacity_type  = "ON_DEMAND"
 
-      min_size     = 3
-      max_size     = 7
-      desired_size = 7
+      min_size     = 4
+      max_size     = 4
+      desired_size = 4
 
-      # Use block_device_mappings instead of disk_size for v20+
+      # Use block_device_mappings for root volume
       block_device_mappings = {
         xvda = {
           device_name = "/dev/xvda"
           ebs = {
-            volume_size           = 300
+            volume_size           = 100
             volume_type           = "gp3"
             iops                  = 3000
             throughput            = 125
@@ -131,16 +131,65 @@ module "eks" {
       }
 
       labels = {
-        role = "main"
+        role     = "storage"
+        workload = "execution-layer"
       }
 
       tags = merge(
         var.tags,
         {
-          Name = "${var.cluster_name}-main-node"
+          Name = "${var.cluster_name}-storage-node"
         }
       )
     }
+
+    # General purpose nodes - DISABLED (using only i4i nodes)
+    # general = {
+    #   name = "${var.cluster_name}-gen"
+
+    #   ami_type       = "AL2023_x86_64_STANDARD"
+    #   instance_types = ["m7i.xlarge"] # 4 vCPU, 16GB RAM
+    #   capacity_type  = "ON_DEMAND"
+
+    #   min_size     = 0
+    #   max_size     = 0
+    #   desired_size = 0
+
+    #   # Use block_device_mappings for root volume
+    #   block_device_mappings = {
+    #     xvda = {
+    #       device_name = "/dev/xvda"
+    #       ebs = {
+    #         volume_size           = 100
+    #         volume_type           = "gp3"
+    #         iops                  = 3000
+    #         throughput            = 125
+    #         encrypted             = true
+    #         delete_on_termination = true
+    #       }
+    #     }
+    #   }
+
+    #   # Enable IMDSv2
+    #   metadata_options = {
+    #     http_endpoint               = "enabled"
+    #     http_tokens                 = "required"
+    #     http_put_response_hop_limit = 2
+    #     instance_metadata_tags      = "disabled"
+    #   }
+
+    #   labels = {
+    #     role     = "general"
+    #     workload = "consensus-layer"
+    #   }
+
+    #   tags = merge(
+    #     var.tags,
+    #     {
+    #       Name = "${var.cluster_name}-general-node"
+    #     }
+    #   )
+    # }
   }
 
   # Cluster security group rules
