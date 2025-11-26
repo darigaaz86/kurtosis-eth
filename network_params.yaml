@@ -9,15 +9,9 @@ participants:
     el_extra_params:
       - "--builder.gaslimit"
       - "300000000"
-      # Engine optimization - keep parallel processing enabled
-      - "--engine.cross-block-cache-size"
-      - "512"
-      # Database optimization
-      - "--db.max-readers"
-      - "32768"
     el_extra_mounts: {}
     el_tolerations: []
-    el_volume_size: 0
+    el_volume_size: 500000
     el_min_cpu: 3000
     el_max_cpu: 0
     el_min_mem: 0

@@ -8,12 +8,14 @@ data:
   txpool-exporter.py: |
     #!/usr/bin/env python3
     """
-    Txpool Prometheus Exporter for Kubernetes
-    Exports Ethereum txpool metrics to Prometheus
+    Reth Metrics Exporter for Kubernetes
+    Exports Ethereum txpool metrics and log-based metrics (state root, block processing) to Prometheus
     """
     import json
     import time
     import requests
+    import re
+    import subprocess
     from http.server import HTTPServer, BaseHTTPRequestHandler
     import threading
     import os
@@ -23,12 +25,38 @@ data:
     RPC_URLS = [f"http://el-{i}-reth-lighthouse:8545" for i in range(1, NUM_NODES + 1)]
     EXPORTER_PORT = 9200
     UPDATE_INTERVAL = int(os.getenv("UPDATE_INTERVAL", "5"))
+    LOG_POD = os.getenv("LOG_POD", "el-1-reth-lighthouse")
+    NAMESPACE = os.getenv("NAMESPACE", "kt-eth-testnet")
 
     # Global metrics storage
     metrics = {
         "pending": {},
-        "queued": {}
+        "queued": {},
+        "state_root_duration": 0,
+        "block_processing_duration": 0,
+        "block_number": 0,
+        "gas_throughput": 0,
+        "transactions_per_block": 0,
+        "blocks_processed": 0,
+        "state_roots_computed": 0
     }
+
+    # Regex patterns for log parsing
+    STATE_ROOT_PATTERN = re.compile(r'State root task finished.*?elapsed=(\d+\.?\d*)(\w+)')
+    BLOCK_PATTERN = re.compile(r'Block added to canonical chain number=(\d+).*?txs=(\d+).*?gas_throughput=([\d.]+)Mgas/second.*?elapsed=(\d+\.?\d*)(\w+)')
+
+    def parse_duration(value, unit):
+        """Convert duration to seconds"""
+        value = float(value)
+        if unit == 'ms':
+            return value / 1000
+        elif unit == 's':
+            return value
+        elif unit in ['µs', 'us']:
+            return value / 1000000
+        elif unit == 'ns':
+            return value / 1000000000
+        return value
 
     def get_txpool_status(rpc_url, node_name):
         """Get txpool status from RPC endpoint"""
@@ -47,8 +75,47 @@ data:
             print(f"Error fetching txpool from {node_name} ({rpc_url}): {e}")
             return {"pending": 0, "queued": 0}
 
+    def parse_log_line(line):
+        """Parse a log line and update metrics"""
+        global metrics
+        # Check for state root
+        match = STATE_ROOT_PATTERN.search(line)
+        if match:
+            duration = parse_duration(match.group(1), match.group(2))
+            metrics["state_root_duration"] = duration
+            metrics["state_roots_computed"] += 1
+            return
+        
+        # Check for block added
+        match = BLOCK_PATTERN.search(line)
+        if match:
+            block_num = int(match.group(1))
+            txs = int(match.group(2))
+            gas_tp = float(match.group(3))
+            duration = parse_duration(match.group(4), match.group(5))
+            
+            metrics["block_number"] = block_num
+            metrics["transactions_per_block"] = txs
+            metrics["gas_throughput"] = gas_tp
+            metrics["block_processing_duration"] = duration
+            metrics["blocks_processed"] += 1
+
+    def follow_logs():
+        """Follow kubectl logs and parse them"""
+        global metrics
+        cmd = ['kubectl', 'logs', '-f', '-n', NAMESPACE, LOG_POD, '--tail=10']
+        while True:
+            try:
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        parse_log_line(line.strip())
+            except Exception as e:
+                print(f"Error following logs: {e}")
+                time.sleep(5)
+
     def update_metrics():
-        """Update metrics from all RPC endpoints"""
+        """Update txpool metrics from all RPC endpoints"""
         global metrics
         while True:
             for idx, rpc_url in enumerate(RPC_URLS):
@@ -83,6 +150,35 @@ data:
                     total = metrics["pending"].get(node, 0) + metrics["queued"].get(node, 0)
                     output.append(f'txpool_total_transactions{{node="{node}"}} {total}')
                 
+                # Add log-based metrics
+                output.append("# HELP reth_state_root_duration_seconds State root computation duration")
+                output.append("# TYPE reth_state_root_duration_seconds gauge")
+                output.append(f'reth_state_root_duration_seconds {metrics["state_root_duration"]}')
+                
+                output.append("# HELP reth_block_processing_duration_seconds Block processing duration")
+                output.append("# TYPE reth_block_processing_duration_seconds gauge")
+                output.append(f'reth_block_processing_duration_seconds {metrics["block_processing_duration"]}')
+                
+                output.append("# HELP reth_latest_block_number Latest block number processed")
+                output.append("# TYPE reth_latest_block_number gauge")
+                output.append(f'reth_latest_block_number {metrics["block_number"]}')
+                
+                output.append("# HELP reth_gas_throughput_mgas_per_second Gas throughput in Mgas/second")
+                output.append("# TYPE reth_gas_throughput_mgas_per_second gauge")
+                output.append(f'reth_gas_throughput_mgas_per_second {metrics["gas_throughput"]}')
+                
+                output.append("# HELP reth_transactions_per_block Number of transactions in latest block")
+                output.append("# TYPE reth_transactions_per_block gauge")
+                output.append(f'reth_transactions_per_block {metrics["transactions_per_block"]}')
+                
+                output.append("# HELP reth_blocks_processed_total Total blocks processed")
+                output.append("# TYPE reth_blocks_processed_total counter")
+                output.append(f'reth_blocks_processed_total {metrics["blocks_processed"]}')
+                
+                output.append("# HELP reth_state_roots_computed_total Total state roots computed")
+                output.append("# TYPE reth_state_roots_computed_total counter")
+                output.append(f'reth_state_roots_computed_total {metrics["state_roots_computed"]}')
+                
                 self.wfile.write("\n".join(output).encode())
             elif self.path == "/health":
                 self.send_response(200)
@@ -97,17 +193,52 @@ data:
             pass  # Suppress logs
 
     if __name__ == "__main__":
-        # Start metrics updater thread
+        # Start metrics updater thread for txpool
         updater = threading.Thread(target=update_metrics, daemon=True)
         updater.start()
         
+        # Start log follower thread
+        log_follower = threading.Thread(target=follow_logs, daemon=True)
+        log_follower.start()
+        
         # Start HTTP server
         server = HTTPServer(("0.0.0.0", EXPORTER_PORT), MetricsHandler)
-        print(f"Txpool exporter running on port {EXPORTER_PORT}")
-        print(f"Monitoring {len(RPC_URLS)} RPC endpoints")
+        print(f"Reth metrics exporter running on port {EXPORTER_PORT}")
+        print(f"Monitoring {len(RPC_URLS)} RPC endpoints for txpool")
+        print(f"Following logs from {LOG_POD} in namespace {NAMESPACE}")
         print(f"Update interval: {UPDATE_INTERVAL} seconds")
         server.serve_forever()
 
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: txpool-exporter
+  namespace: kt-eth-testnet
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: txpool-exporter
+  namespace: kt-eth-testnet
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: txpool-exporter
+  namespace: kt-eth-testnet
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: txpool-exporter
+subjects:
+- kind: ServiceAccount
+  name: txpool-exporter
+  namespace: kt-eth-testnet
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -130,6 +261,7 @@ spec:
         prometheus.io/port: "9200"
         prometheus.io/path: "/metrics"
     spec:
+      serviceAccountName: txpool-exporter
       containers:
       - name: txpool-exporter
         image: python:3.11-slim
@@ -144,6 +276,10 @@ spec:
           value: "8"
         - name: UPDATE_INTERVAL
           value: "5"
+        - name: LOG_POD
+          value: "el-1-reth-lighthouse"
+        - name: NAMESPACE
+          value: "kt-eth-testnet"
         ports:
         - name: metrics
           containerPort: 9200
